@@ -1,0 +1,3 @@
+http://jany.st/post/2017-11-05-single-shot-detector-ssd-from-scratch-in-tensorflow.html
+https://medium.com/@kweisamx0322/ssd-single-shot-multibox-detector-%E8%A9%B3%E8%A7%A3-d091bd0370f9
+https://zhuanlan.zhihu.com/p/31427288
