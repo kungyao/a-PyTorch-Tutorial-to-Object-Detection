@@ -9,14 +9,19 @@ import torch
 from PIL import Image
 import torchvision.transforms.functional as TF
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 path = "v2-e82cb9a688c9cba9265e1044c5159d7b_hd.jpg"
 img = Image.open(path, mode='r').convert('RGB')
 img = img.resize((300, 300))
 img = TF.to_tensor(img)
 
 imgs = torch.stack([img], dim=0)
+imgs = imgs.to(device)
 
 model = SSD300Fork(2)
+model.eval()
+model.to(device)
 # model = SSD300()
 print(model)
 
@@ -35,3 +40,4 @@ det_boxes, det_labels, det_scores = model.detect_objects(
     max_overlap=max_overlap, 
     top_k=top_k)
 
+print(det_boxes, det_labels, det_scores)

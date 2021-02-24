@@ -6,19 +6,20 @@ import torchvision
 
 from model import VGGBase, AuxiliaryConvolutions, PredictionConvolutions
 
-class SSD300(nn.Module):
-    """
-    The SSD300 network - encapsulates the base VGG network, auxiliary, and prediction convolutions.
-    """
-
+class SSD300Fork(nn.Module):
     def __init__(self, n_classes):
-        super(SSD300, self).__init__()
+        super(SSD300Fork, self).__init__()
 
         self.n_classes = n_classes
 
         self.base = VGGBase()
         self.aux_convs = AuxiliaryConvolutions()
-        self.pred_convs = PredictionConvolutions(n_classes)
+
+        # ssd300-fork : foreach class need a detection layer
+        self.pred_convs = []
+        for _ in range(n_classes):
+            self.pred_convs.append(PredictionConvolutions(2))
+        self.pred_convs = nn.ModuleList(self.pred_convs)
 
         # Since lower level features (conv4_3_feats) have considerably larger scales, we take the L2 norm and rescale
         # Rescale factor is initially set at 20, but is learned for each channel during back-prop
@@ -31,7 +32,6 @@ class SSD300(nn.Module):
     def forward(self, image):
         """
         Forward propagation.
-
         :param image: images, a tensor of dimensions (N, 3, 300, 300)
         :return: 8732 locations and class scores (i.e. w.r.t each prior box) for each image
         """
@@ -49,15 +49,25 @@ class SSD300(nn.Module):
             self.aux_convs(conv7_feats)  # (N, 512, 10, 10),  (N, 256, 5, 5), (N, 256, 3, 3), (N, 256, 1, 1)
 
         # Run prediction convolutions (predict offsets w.r.t prior-boxes and classes in each resulting localization box)
-        locs, classes_scores = self.pred_convs(conv4_3_feats, conv7_feats, conv8_2_feats, conv9_2_feats, conv10_2_feats,
-                                               conv11_2_feats)  # (N, 8732, 4), (N, 8732, n_classes)
+        # (num_of_class, N, 8732, 4)
+        ret_locs = []
+        # (num_of_class, N, 8732, 2)
+        ret_classes_scores = []
+        for detection_layer in self.pred_convs:
+            # (N, 8732, 4), (N, 8732, 2)
+            locs, classes_scores = detection_layer(conv4_3_feats, conv7_feats, conv8_2_feats, conv9_2_feats, conv10_2_feats, conv11_2_feats)
+            ret_locs.append(locs)
+            ret_classes_scores.append(classes_scores)
 
-        return locs, classes_scores
+        # (N, num_of_class, 8732, 4)
+        ret_locs = torch.stack(ret_locs, dim=0).permute(1, 0, 2, 3)
+        # (N, num_of_class, 8732, 2)
+        ret_classes_scores = torch.stack(ret_classes_scores, dim=0).permute(1, 0, 2, 3)
+        return ret_locs, ret_classes_scores
 
     def create_prior_boxes(self):
         """
         Create the 8732 prior (default) boxes for the SSD300, as defined in the paper.
-
         :return: prior boxes in center-size coordinates, a tensor of dimensions (8732, 4)
         """
         fmap_dims = {'conv4_3': 38,
@@ -112,9 +122,7 @@ class SSD300(nn.Module):
     def detect_objects(self, predicted_locs, predicted_scores, min_score, max_overlap, top_k):
         """
         Decipher the 8732 locations and class scores (output of ths SSD300) to detect objects.
-
         For each class, perform Non-Maximum Suppression (NMS) on boxes that are above a minimum threshold.
-
         :param predicted_locs: predicted locations/boxes w.r.t the 8732 prior boxes, a tensor of dimensions (N, 8732, 4)
         :param predicted_scores: class scores for each of the encoded locations/boxes, a tensor of dimensions (N, 8732, n_classes)
         :param min_score: minimum threshold for a box to be considered a match for a certain class
@@ -124,31 +132,36 @@ class SSD300(nn.Module):
         """
         batch_size = predicted_locs.size(0)
         n_priors = self.priors_cxcy.size(0)
-        predicted_scores = F.softmax(predicted_scores, dim=2)  # (N, 8732, n_classes)
+
+        # do softmax to 3rd-dimension
+        predicted_scores = F.softmax(predicted_scores, dim=3)  # (N, n_classes, 8732, 2)
 
         # Lists to store final predicted boxes, labels, and scores for all images
         all_images_boxes = list()
         all_images_labels = list()
         all_images_scores = list()
 
-        assert n_priors == predicted_locs.size(1) == predicted_scores.size(1)
+        # total box size need to be same
+        assert n_priors == predicted_locs.size(2) == predicted_scores.size(2)
 
+        # Check for each class
         for i in range(batch_size):
-            # Decode object coordinates from the form we regressed predicted boxes to
-            decoded_locs = cxcy_to_xy(
-                gcxgcy_to_cxcy(predicted_locs[i], self.priors_cxcy))  # (8732, 4), these are fractional pt. coordinates
-
             # Lists to store boxes and scores for this image
             image_boxes = list()
             image_labels = list()
             image_scores = list()
+            for c in range(0, self.n_classes): 
+                # Decode object coordinates from the form we regressed predicted boxes to
+                decoded_locs = cxcy_to_xy(
+                    gcxgcy_to_cxcy(predicted_locs[i][c], self.priors_cxcy))  # (8732, 4), these are fractional pt. coordinates
 
-            max_scores, best_label = predicted_scores[i].max(dim=1)  # (8732)
+                max_scores, best_label = predicted_scores[i][c].max(dim=1)  # (8732)
 
-            # Check for each class
-            for c in range(1, self.n_classes):
+                #-----------------------------------------------------------------------------------
+                # Check for each class
+                # for c in range(1, self.n_classes):
                 # Keep only predicted boxes and scores where scores for this class are above the minimum score
-                class_scores = predicted_scores[i][:, c]  # (8732)
+                class_scores = predicted_scores[i][c][:, 1]  # (8732)
                 score_above_min_score = class_scores > min_score  # torch.uint8 (byte) tensor, for indexing
                 n_above_min_score = score_above_min_score.sum().item()
                 if n_above_min_score == 0:
@@ -177,7 +190,9 @@ class SSD300(nn.Module):
 
                     # Suppress boxes whose overlaps (with this box) are greater than maximum overlap
                     # Find such boxes and update suppress indices
-                    suppress = torch.max(suppress, overlap[box] > max_overlap)
+                    # print(overlap[box], (overlap[box] > max_overlap).type(torch.uint8))
+                    # suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
+                    suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
                     # The max operation retains previously suppressed boxes, like an 'OR' operation
 
                     # Don't suppress this box, even though it has an overlap of 1 with itself
@@ -185,8 +200,9 @@ class SSD300(nn.Module):
 
                 # Store only unsuppressed boxes for this class
                 image_boxes.append(class_decoded_locs[1 - suppress])
-                image_labels.append(torch.LongTensor((1 - suppress).sum().item() * [c]).to(device))
+                image_labels.append(torch.LongTensor((1 - suppress).sum().item() * [1]).to(device))
                 image_scores.append(class_scores[1 - suppress])
+                #-----------------------------------------------------------------------------------
 
             # If no object in any class is found, store a placeholder for 'background'
             if len(image_boxes) == 0:
