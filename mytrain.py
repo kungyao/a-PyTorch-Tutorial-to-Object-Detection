@@ -9,7 +9,7 @@ from tensorboardX import SummaryWriter
 
 from model import SSD300
 from model import MultiBoxLoss
-from data import TextDataset, MyTransform
+from data import TextDataset, MyTransform, my_collate_fn
 # precision = 'fp32'
 # ssd_model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_ssd', model_math=precision, pretrained=False)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -85,13 +85,12 @@ if __name__ == '__main__':
     transform = MyTransform()
     root_folder = args.root
     # create dataloader
-    train_dataset = TextDataset(root_folder, 'train', transform)
-    # val_dataset = TextDataset(root_folder, 'test', transform)
+    train_dataset = TextDataset(root_folder, transform)
     
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.batchSize,
-        collate_fn=train_dataset.collate_fn,
+        collate_fn=my_collate_fn,
         pin_memory=True,
         num_workers=0)
     # val_dataloader = DataLoader(
