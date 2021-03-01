@@ -127,7 +127,7 @@ class SSD300Fork(nn.Module):
         :param predicted_scores: class scores for each of the encoded locations/boxes, a tensor of dimensions (N, 8732, n_classes)
         :param min_score: minimum threshold for a box to be considered a match for a certain class
         :param max_overlap: maximum overlap two boxes can have so that the one with the lower score is not suppressed via NMS
-        :param top_k: if there are a lot of resulting detection across all classes, keep only the top 'k'
+        :param top_k: if there are a lot of resulting detection at 'a specific class', keep only the top 'k' of the data at a class
         :return: detections (boxes, labels, and scores), lists of length batch_size
         """
         batch_size = predicted_locs.size(0)
@@ -148,7 +148,7 @@ class SSD300Fork(nn.Module):
         for i in range(batch_size):
             # Lists to store boxes and scores for this image
             image_boxes = list()
-            # image_labels = list()
+            image_labels = list()
             image_scores = list()
             for c in range(self.n_classes): 
                 # Decode object coordinates from the form we regressed predicted boxes to
@@ -198,32 +198,31 @@ class SSD300Fork(nn.Module):
                     # Store only unsuppressed boxes for this class
                     class_boxes = class_decoded_locs[1 - suppress]
                     # set label index to class c + 1
-                    # class_labels = torch.LongTensor((1 - suppress).sum().item() * [c + 1]).to(device)
+                    class_labels = torch.LongTensor((1 - suppress).sum().item() * [c + 1]).to(device)
                     class_scores = class_scores[1 - suppress]
-                else:
-                    # If no object in any class is found, store a placeholder for 'background'
-                    class_boxes = torch.FloatTensor([]).to(device)
-                    # class_labels = torch.LongTensor([]).to(device)
-                    class_scores = torch.FloatTensor([]).to(device)
                 
-                n_objects = class_boxes.shape[0]
-                # Keep only the top k objects
-                if n_objects > top_k:
-                    class_boxes = class_boxes[:top_k]  # (top_k, 4)
-                    # class_labels = class_labels[:top_k]  # (top_k)
-                    class_scores = class_scores[:top_k]  # (top_k)
+                    n_objects = class_boxes.shape[0]
+                    # Keep only the top k objects
+                    if n_objects > top_k:
+                        class_boxes = class_boxes[:top_k]  # (top_k, 4)
+                        class_labels = class_labels[:top_k]  # (top_k)
+                        class_scores = class_scores[:top_k]  # (top_k)
 
-                image_boxes.append(class_boxes)
-                # image_labels.append(class_labels)
-                image_scores.append(class_scores)
+                    image_boxes.append(class_boxes)
+                    image_labels.append(class_labels)
+                    image_scores.append(class_scores)
                 #-----------------------------------------------------------------------------------
+
+            image_boxes = torch.cat(image_boxes, dim=0)
+            image_labels = torch.cat(image_labels, dim=0)
+            image_scores = torch.cat(image_scores, dim=0)
 
             # Append to lists that store predicted boxes and scores for all images
             all_images_boxes.append(image_boxes)
-            # all_images_labels.append(image_labels)
+            all_images_labels.append(image_labels)
             all_images_scores.append(image_scores)
 
-        return all_images_boxes, all_images_scores  # lists of length batch_size ---- all_images_labels, 
+        return all_images_boxes, all_images_labels, all_images_scores  # lists of length batch_size ---- 
 
 
 class MultiBoxLossFork(nn.Module):
