@@ -154,9 +154,7 @@ class SSD300Fork(nn.Module):
                 # Decode object coordinates from the form we regressed predicted boxes to
                 decoded_locs = cxcy_to_xy(
                     gcxgcy_to_cxcy(predicted_locs[i][c], self.priors_cxcy))  # (8732, 4), these are fractional pt. coordinates
-
                 max_scores, best_label = predicted_scores[i][c].max(dim=1)  # (8732)
-
                 #-----------------------------------------------------------------------------------
                 # Check for each class
                 # for c in range(1, self.n_classes):
@@ -164,65 +162,61 @@ class SSD300Fork(nn.Module):
                 class_scores = predicted_scores[i][c][:, 1]  # (8732)
                 score_above_min_score = class_scores > min_score  # torch.uint8 (byte) tensor, for indexing
                 n_above_min_score = score_above_min_score.sum().item()
-                if n_above_min_score == 0:
-                    continue
-                class_scores = class_scores[score_above_min_score]  # (n_qualified), n_min_score <= 8732
-                class_decoded_locs = decoded_locs[score_above_min_score]  # (n_qualified, 4)
 
-                # Sort predicted boxes and scores by scores
-                class_scores, sort_ind = class_scores.sort(dim=0, descending=True)  # (n_qualified), (n_min_score)
-                class_decoded_locs = class_decoded_locs[sort_ind]  # (n_min_score, 4)
+                if n_above_min_score != 0:
+                    class_scores = class_scores[score_above_min_score]  # (n_qualified), n_min_score <= 8732
+                    class_decoded_locs = decoded_locs[score_above_min_score]  # (n_qualified, 4)
+                    print(i, c, n_above_min_score)
+                    # Sort predicted boxes and scores by scores
+                    class_scores, sort_ind = class_scores.sort(dim=0, descending=True)  # (n_qualified), (n_min_score)
+                    class_decoded_locs = class_decoded_locs[sort_ind]  # (n_min_score, 4)
 
-                # Find the overlap between predicted boxes
-                overlap = find_jaccard_overlap(class_decoded_locs, class_decoded_locs)  # (n_qualified, n_min_score)
+                    # Find the overlap between predicted boxes
+                    overlap = find_jaccard_overlap(class_decoded_locs, class_decoded_locs)  # (n_qualified, n_min_score)
 
-                # Non-Maximum Suppression (NMS)
+                    # Non-Maximum Suppression (NMS)
 
-                # A torch.uint8 (byte) tensor to keep track of which predicted boxes to suppress
-                # 1 implies suppress, 0 implies don't suppress
-                suppress = torch.zeros((n_above_min_score), dtype=torch.uint8).to(device)  # (n_qualified)
+                    # A torch.uint8 (byte) tensor to keep track of which predicted boxes to suppress
+                    # 1 implies suppress, 0 implies don't suppress
+                    suppress = torch.zeros((n_above_min_score), dtype=torch.uint8).to(device)  # (n_qualified)
 
-                # Consider each box in order of decreasing scores
-                for box in range(class_decoded_locs.size(0)):
-                    # If this box is already marked for suppression
-                    if suppress[box] == 1:
-                        continue
+                    # Consider each box in order of decreasing scores
+                    for box in range(class_decoded_locs.size(0)):
+                        # If this box is already marked for suppression
+                        if suppress[box] == 1:
+                            continue
 
-                    # Suppress boxes whose overlaps (with this box) are greater than maximum overlap
-                    # Find such boxes and update suppress indices
-                    # print(overlap[box], (overlap[box] > max_overlap).type(torch.uint8))
-                    # suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
-                    suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
-                    # The max operation retains previously suppressed boxes, like an 'OR' operation
+                        # Suppress boxes whose overlaps (with this box) are greater than maximum overlap
+                        # Find such boxes and update suppress indices
+                        # print(overlap[box], (overlap[box] > max_overlap).type(torch.uint8))
+                        # suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
+                        suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
+                        # The max operation retains previously suppressed boxes, like an 'OR' operation
 
-                    # Don't suppress this box, even though it has an overlap of 1 with itself
-                    suppress[box] = 0
+                        # Don't suppress this box, even though it has an overlap of 1 with itself
+                        suppress[box] = 0
+                    # Store only unsuppressed boxes for this class
+                    class_boxes = class_decoded_locs[1 - suppress]
+                    # set label index to class c + 1
+                    class_labels = torch.LongTensor((1 - suppress).sum().item() * [c + 1]).to(device)
+                    class_scores = class_scores[1 - suppress]
+                else:
+                    # If no object in any class is found, store a placeholder for 'background'
+                    class_boxes = torch.FloatTensor([]).to(device)
+                    class_labels = torch.LongTensor([]).to(device)
+                    class_scores = torch.FloatTensor([]).to(device)
+                
+                n_objects = class_boxes.shape[0]
+                # Keep only the top k objects
+                if n_objects > top_k:
+                    class_scores = class_scores[:top_k]  # (top_k)
+                    class_boxes = class_boxes[:top_k]  # (top_k, 4)
+                    class_labels = class_labels[:top_k]  # (top_k)
 
-                # Store only unsuppressed boxes for this class
-                image_boxes.append(class_decoded_locs[1 - suppress])
-                # set label index to class c + 1
-                image_labels.append(torch.LongTensor((1 - suppress).sum().item() * [c + 1]).to(device))
-                image_scores.append(class_scores[1 - suppress])
+                image_boxes.append(class_boxes)
+                image_labels.append(class_labels)
+                image_scores.append(class_scores)
                 #-----------------------------------------------------------------------------------
-
-            # If no object in any class is found, store a placeholder for 'background'
-            if len(image_boxes) == 0:
-                image_boxes.append(torch.FloatTensor([[0., 0., 1., 1.]]).to(device))
-                image_labels.append(torch.LongTensor([0]).to(device))
-                image_scores.append(torch.FloatTensor([0.]).to(device))
-
-            # Concatenate into single tensors
-            image_boxes = torch.cat(image_boxes, dim=0)  # (n_objects, 4)
-            image_labels = torch.cat(image_labels, dim=0)  # (n_objects)
-            image_scores = torch.cat(image_scores, dim=0)  # (n_objects)
-            n_objects = image_scores.size(0)
-
-            # Keep only the top k objects
-            if n_objects > top_k:
-                image_scores, sort_ind = image_scores.sort(dim=0, descending=True)
-                image_scores = image_scores[:top_k]  # (top_k)
-                image_boxes = image_boxes[sort_ind][:top_k]  # (top_k, 4)
-                image_labels = image_labels[sort_ind][:top_k]  # (top_k)
 
             # Append to lists that store predicted boxes and scores for all images
             all_images_boxes.append(image_boxes)

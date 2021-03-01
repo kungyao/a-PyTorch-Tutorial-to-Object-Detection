@@ -67,7 +67,7 @@ if __name__ == '__main__':
     loss_func.to(device)
     
     optim = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=1, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=2, gamma=0.1)
     
     # create dataloader
     dataset = TextDataset(args.root, model_type='ssd-fork', transforms=MyTransform())
