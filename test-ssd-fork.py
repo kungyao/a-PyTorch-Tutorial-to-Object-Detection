@@ -51,12 +51,13 @@ def test(model, transform, original_image):
             max_overlap=max_overlap, 
             top_k=top_k)
 
-        det_boxes  = det_boxes[0].cpu()
-        # det_labels = det_labels[0].cpu()
-        det_scores = det_scores[0].cpu()
+        # print(det_boxes, det_scores)
+        det_boxes  = det_boxes[0]
+        # det_labels = det_labels[0]
+        det_scores = det_scores[0]
         
         # ---- det_labels.shape, 
-        print(det_boxes.shape, det_scores.shape)
+        # print(det_boxes.shape, det_scores.shape)
 
         # Transform to original image dimensions
         original_dims = torch.FloatTensor(
@@ -66,22 +67,20 @@ def test(model, transform, original_image):
                 original_image.width, 
                 original_image.height
             ]).unsqueeze(0)
-
-        det_boxes = det_boxes * original_dims
         
         # Annotate
         annotated_image = original_image
         draw = ImageDraw.Draw(annotated_image)
         font = ImageFont.truetype("./consola.ttf", 15)
 
-        for c in range(det_boxes.size(0)):
+        for c in range(len(det_boxes)):
             class_det_boxes = det_boxes[c]
             # class_det_labels = det_labels[c]
             class_det_scores = det_scores[c]
             box_size = class_det_boxes.size(0)
             if box_size > 0:
                 # to original size of box
-                class_det_boxes = class_det_boxes * original_dims
+                class_det_boxes = class_det_boxes.cpu() * original_dims
                 for i in range(box_size):
                     if class_det_scores[i] >= threshold:      
                         box_location = class_det_boxes[i].tolist()
