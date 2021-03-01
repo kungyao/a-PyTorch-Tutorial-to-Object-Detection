@@ -43,8 +43,8 @@ def test(model, transform, original_image):
     with torch.no_grad():
         predicted_locs, predicted_scores = model(image.unsqueeze(0))
 
-        # Detect objects in SSD output
-        det_boxes, det_labels, det_scores = model.detect_objects(
+        # Detect objects in SSD output ---- det_labels, 
+        det_boxes, det_scores = model.detect_objects(
             predicted_locs, 
             predicted_scores, 
             min_score=min_score,
@@ -52,10 +52,11 @@ def test(model, transform, original_image):
             top_k=top_k)
 
         det_boxes  = det_boxes[0].cpu()
-        det_labels = det_labels[0].cpu()
+        # det_labels = det_labels[0].cpu()
         det_scores = det_scores[0].cpu()
         
-        print(det_boxes.shape, det_labels.shape, det_scores.shape)
+        # ---- det_labels.shape, 
+        print(det_boxes.shape, det_scores.shape)
 
         # Transform to original image dimensions
         original_dims = torch.FloatTensor(

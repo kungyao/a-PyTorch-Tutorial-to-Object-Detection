@@ -148,7 +148,7 @@ class SSD300Fork(nn.Module):
         for i in range(batch_size):
             # Lists to store boxes and scores for this image
             image_boxes = list()
-            image_labels = list()
+            # image_labels = list()
             image_scores = list()
             for c in range(self.n_classes): 
                 # Decode object coordinates from the form we regressed predicted boxes to
@@ -198,32 +198,32 @@ class SSD300Fork(nn.Module):
                     # Store only unsuppressed boxes for this class
                     class_boxes = class_decoded_locs[1 - suppress]
                     # set label index to class c + 1
-                    class_labels = torch.LongTensor((1 - suppress).sum().item() * [c + 1]).to(device)
+                    # class_labels = torch.LongTensor((1 - suppress).sum().item() * [c + 1]).to(device)
                     class_scores = class_scores[1 - suppress]
                 else:
                     # If no object in any class is found, store a placeholder for 'background'
                     class_boxes = torch.FloatTensor([]).to(device)
-                    class_labels = torch.LongTensor([]).to(device)
+                    # class_labels = torch.LongTensor([]).to(device)
                     class_scores = torch.FloatTensor([]).to(device)
                 
                 n_objects = class_boxes.shape[0]
                 # Keep only the top k objects
                 if n_objects > top_k:
-                    class_scores = class_scores[:top_k]  # (top_k)
                     class_boxes = class_boxes[:top_k]  # (top_k, 4)
-                    class_labels = class_labels[:top_k]  # (top_k)
+                    # class_labels = class_labels[:top_k]  # (top_k)
+                    class_scores = class_scores[:top_k]  # (top_k)
 
                 image_boxes.append(class_boxes)
-                image_labels.append(class_labels)
+                # image_labels.append(class_labels)
                 image_scores.append(class_scores)
                 #-----------------------------------------------------------------------------------
 
             # Append to lists that store predicted boxes and scores for all images
             all_images_boxes.append(image_boxes)
-            all_images_labels.append(image_labels)
+            # all_images_labels.append(image_labels)
             all_images_scores.append(image_scores)
 
-        return all_images_boxes, all_images_labels, all_images_scores  # lists of length batch_size
+        return all_images_boxes, all_images_scores  # lists of length batch_size ---- all_images_labels, 
 
 
 class MultiBoxLossFork(nn.Module):
