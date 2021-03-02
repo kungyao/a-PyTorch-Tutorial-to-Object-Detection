@@ -276,17 +276,16 @@ def calculate_mAP(det_boxes, det_labels, det_scores, true_boxes, true_labels, tr
 
     return average_precisions, mean_average_precision
 
-
-def calculate_mAP_fork(det_boxes, det_labels, det_scores, true_boxes, true_labels):
+# sometime will get all zero output, need to check where have the bug
+def calculate_mAP_fork(det_boxes, det_labels, det_scores, true_boxes, true_labels, my_label_map=['frame', 'text', 'face', 'body']):
     assert len(det_boxes) == len(det_labels) == len(det_scores) == len(true_boxes) == len(true_labels)
-    n_classes = len(label_map)
+    n_classes = len(my_label_map)
 
     # Store all (true) objects in a single continuous tensor while keeping track of the image it is from
     true_images = list()
     for i in range(len(true_labels)):
         true_images.extend([i] * true_labels[i].size(0))
-    true_images = torch.LongTensor(true_images).to(
-        device)  # (n_objects), n_objects is the total no. of objects across all images
+    true_images = torch.LongTensor(true_images).to(device)  # (n_objects), n_objects is the total no. of objects across all images
     true_boxes = torch.cat(true_boxes, dim=0)  # (n_objects, 4)
     true_labels = torch.cat(true_labels, dim=0)  # (n_objects)
 
@@ -303,9 +302,9 @@ def calculate_mAP_fork(det_boxes, det_labels, det_scores, true_boxes, true_label
 
     assert det_images.size(0) == det_boxes.size(0) == det_labels.size(0) == det_scores.size(0)
 
-    # Calculate APs for each class (except background)
-    average_precisions = torch.zeros((n_classes - 1), dtype=torch.float)  # (n_classes - 1)
-    for c in range(1, n_classes):
+    average_precisions = torch.zeros((n_classes), dtype=torch.float)  # (n_classes)
+    # after model.detect_objects, each box label from 0 or 1(negative or positive) to class (1~n_classes)
+    for c in range(1, n_classes + 1):
         # Extract only objects with this class
         true_class_images = true_images[true_labels == c]  # (n_class_objects)
         true_class_boxes = true_boxes[true_labels == c]  # (n_class_objects, 4)
@@ -323,6 +322,8 @@ def calculate_mAP_fork(det_boxes, det_labels, det_scores, true_boxes, true_label
         n_class_detections = det_class_boxes.size(0)
         if n_class_detections == 0:
             continue
+
+        # print(c, n_class_detections, n_class_objects)
 
         # ------------------Sort------------------
         # Sort detections in decreasing order of confidence/scores
@@ -366,6 +367,8 @@ def calculate_mAP_fork(det_boxes, det_labels, det_scores, true_boxes, true_label
             else:
                 false_positives[d] = 1
 
+        # print(true_positives, false_positives)
+
         # Compute cumulative precision and recall at each detection in the order of decreasing scores
         cumul_true_positives = torch.cumsum(true_positives, dim=0)  # (n_class_detections)
         cumul_false_positives = torch.cumsum(false_positives, dim=0)  # (n_class_detections)
@@ -385,13 +388,15 @@ def calculate_mAP_fork(det_boxes, det_labels, det_scores, true_boxes, true_label
                 precisions[i] = cumul_precision[recalls_above_t].max()
             else:
                 precisions[i] = 0.
-        average_precisions[c - 1] = precisions.mean()  # c is in [1, n_classes - 1]
+        average_precisions[c - 1] = precisions.mean()  # c is in [0, n_classes - 1]
+
+    print(average_precisions)
 
     # Calculate Mean Average Precision (mAP)
     mean_average_precision = average_precisions.mean().item()
 
     # Keep class-wise average precisions in a dictionary
-    average_precisions = {rev_label_map[c + 1]: v for c, v in enumerate(average_precisions.tolist())}
+    average_precisions = {my_label_map[c]: v for c, v in enumerate(average_precisions.tolist())}
 
     return average_precisions, mean_average_precision
 

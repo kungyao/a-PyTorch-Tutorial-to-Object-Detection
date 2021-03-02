@@ -166,7 +166,7 @@ class SSD300Fork(nn.Module):
                 if n_above_min_score != 0:
                     class_scores = class_scores[score_above_min_score]  # (n_qualified), n_min_score <= 8732
                     class_decoded_locs = decoded_locs[score_above_min_score]  # (n_qualified, 4)
-                    print(i, c, n_above_min_score)
+                    # print(i, c, n_above_min_score)
                     # Sort predicted boxes and scores by scores
                     class_scores, sort_ind = class_scores.sort(dim=0, descending=True)  # (n_qualified), (n_min_score)
                     class_decoded_locs = class_decoded_locs[sort_ind]  # (n_min_score, 4)
@@ -189,7 +189,6 @@ class SSD300Fork(nn.Module):
                         # Suppress boxes whose overlaps (with this box) are greater than maximum overlap
                         # Find such boxes and update suppress indices
                         # print(overlap[box], (overlap[box] > max_overlap).type(torch.uint8))
-                        # suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
                         suppress = torch.max(suppress, (overlap[box] > max_overlap).type(torch.uint8))
                         # The max operation retains previously suppressed boxes, like an 'OR' operation
 

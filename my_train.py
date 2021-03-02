@@ -18,7 +18,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def train_loop(model, loss_func, optim, epoch, iteration, train_dataloader, writer, args):
     start = time.time()
-    for nbatch, (images, bboxes, labels) in enumerate(train_dataloader):
+    for nbatch, (images, bboxes, labels, _) in enumerate(train_dataloader):
         # images = torch.tensor(images).to(device)
         # bboxes = torch.tensor(bboxes).to(device)
         # labels = torch.tensor(labels).to(device)

@@ -56,18 +56,17 @@ def get_args():
     # default class is 5, include (negative、frame、text、face、body). but ssd-fork class count do not need negative, so n_classes is 4.
     parser.add_argument('--n_classes', type=int, default=4)
     parser.add_argument('--epoch', type=int, default=5)
-    return parser
+    return parser.parse_args()
 
 if __name__ == '__main__':
-    parser = get_args()
-    args = parser.parse_args()
+    args = get_args()
     
     model, loss_func = build_fork_model_and_loss_function(args.n_classes)
     model.to(device)
     loss_func.to(device)
     
     optim = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=2, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=6, gamma=0.1)
     
     # create dataloader
     dataset = TextDataset(args.root, model_type='ssd-fork', transforms=MyTransform())

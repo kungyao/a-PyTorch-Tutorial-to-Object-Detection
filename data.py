@@ -12,7 +12,7 @@ from torchvision.transforms.functional import to_tensor
 
 # normalize image width and height from 0 to 1 by input dims
 class MyTransform(object):
-    def __call__(self, image, bboxes = None, dims=(300,300)):
+    def __call__(self, image, bboxes=None, dims=(300,300)):
         new_image = FT.resize(image, dims)
         new_image = FT.to_tensor(new_image)
         
@@ -25,7 +25,7 @@ class MyTransform(object):
         return new_image, new_boxes
 
 class TextDataset(Dataset):
-    def __init__(self, root_folder, model_type='ssd-fork', transforms=None):
+    def __init__(self, root_folder, model_type='ssd-fork', transforms=None, specific_manga=None):
         self.transforms = transforms
 
         self.default_labels = ['frame', 'text', 'face', 'body']
@@ -34,21 +34,18 @@ class TextDataset(Dataset):
         self.labels = []
 
         self.model_type = model_type
-        self.preprocessing(root_folder)
+        self.preprocessing(root_folder, specific_manga)
         
-    def preprocessing(self, root_folder):
+    def preprocessing(self, root_folder, specific_manga):
         # take manga109 input format
         xml_folder = os.path.join(root_folder, 'annotations')
         img_folder = os.path.join(root_folder, 'images')
         
-        # construct dataset
-        for annoXml in os.listdir(xml_folder):
-            tree = ET.parse(os.path.join(xml_folder, annoXml))
+        def load_manga_data(annoPath, imgRootPath): 
+            tree = ET.parse(annoPath)
             root = tree.getroot()
-
             manga_name = root.attrib['title']
-            manga_folder = os.path.join(img_folder, manga_name)
-            
+            manga_folder = os.path.join(imgRootPath, manga_name)
             # parse 'pages' element
             for child in root:
                 if child.tag == 'pages':
@@ -56,12 +53,6 @@ class TextDataset(Dataset):
                         img_index = page.attrib['index']
                         img_path = os.path.join(manga_folder, img_index.zfill(3) + '.jpg')
 
-                        # if model_type == 'ssd-fork':
-                        #     # create box set
-                        #     boxes = {}
-                        #     for lbls in self.default_labels:
-                        #         boxes[lbls] = []
-                        # else:
                         boxes = []
                         labels = []
 
@@ -81,7 +72,16 @@ class TextDataset(Dataset):
                             self.boxes.append(boxes)
                             self.labels.append(labels)
 
-            # break
+        if specific_manga == None:
+            # construct dataset
+            for annoXml in os.listdir(xml_folder):
+                annoPath = os.path.join(xml_folder, annoXml)
+                load_manga_data(annoPath, img_folder)
+                # break
+        else:
+            annoPath = os.path.join(xml_folder, f'{specific_manga}.xml')
+            assert os.path.exists(annoPath)
+            load_manga_data(annoPath, img_folder)
 
     """
     # return [cx, cy, w, h]
@@ -108,12 +108,13 @@ class TextDataset(Dataset):
         # load image
         img_path = self.imgs[index]
         img = Image.open(img_path, mode='r').convert('RGB')
-        
+
         boxes = torch.FloatTensor(self.boxes[index])
         # 0 mean negative, so we add one to all label index
         labels = torch.LongTensor(self.labels[index]) + 1
 
-        img, boxes = self.transforms(img, boxes)
+        if self.transforms != None:
+            img, boxes = self.transforms(img, boxes)
 
         if self.model_type == 'ssd-fork':
             boxes_fork = []
@@ -125,7 +126,6 @@ class TextDataset(Dataset):
                 labels_fork.append(torch.ones(labels[pick].shape))
             boxes = boxes_fork
             labels = labels_fork
-
         return (img, boxes, labels)
 
     def __len__(self):
@@ -141,6 +141,9 @@ def my_collate_fn(batch):
         boxes.append(b[1])
         labels.append(b[2])
 
-    imgs = torch.stack(imgs, dim=0)
+    if isinstance(imgs[0], torch.Tensor):
+        imgs = torch.stack(imgs, dim=0)
+    elif isinstance(imgs[0], Image.Image): # PIL.Image.Image
+        pass
 
     return imgs, boxes, labels
